@@ -18,6 +18,10 @@ class Activation(object):
         return tf.nn.relu(x)
 
     @staticmethod
+    def Elu(x):
+        return tf.nn.elu(x)
+
+    @staticmethod
     def Softmax(x):
         return tf.nn.softmax(x)
 
@@ -151,15 +155,14 @@ def Actor(head, output):
 
 
 class Input(subgraph.Subgraph):
-    def build_graph(self, input):
+    def build_graph(self, input, descs=None):
         input_shape = input.shape
         if np.prod(input.shape) == 0:
             input_shape = [1]
         self.ph_state = graph.Placeholder(np.float32,
                 shape=[None] + input_shape + [input.history])
 
-        descs = []
-        if input.use_convolutions:
+        if input.use_convolutions and descs is None:
             descs = [
                     dict(type=Convolution, n_filters=16, filter_size=[8, 8],
                         stride=[4, 4], activation=Activation.Relu),

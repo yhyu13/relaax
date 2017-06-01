@@ -8,16 +8,18 @@ from relaax.common.algorithms.lib import layer
 from relaax.common.algorithms.lib import utils
 
 from .lib import fun_graph
-from .fun_config import config as cfg
-from .lib.lstm import DilatedLSTMCell, CustomBasicLSTMCell
+# from .fun_config import config as cfg
+from . import fun_config
+# from .lib.lstm import DilatedLSTMCell, CustomBasicLSTMCell
+from .lib import lstm
 
 
 class _PerceptionNetwork(subgraph.Subgraph):
     def build_graph(self):
-        input = layer.Input(cfg.input)
+        input = layer.Input(fun_config.config.input)
 
         self.perception =\
-            layer.Dense(layer.Flatten(input), cfg.d,  # d=256
+            layer.Dense(layer.Flatten(input), fun_config.config.d,  # d=256
                         activation=layer.Activation.Relu)
 
         self.weights = layer.Weights(input, self.perception)
@@ -28,15 +30,15 @@ class _PerceptionNetwork(subgraph.Subgraph):
 class _ManagerNetwork(subgraph.Subgraph):
     def build_graph(self):
         self.ph_perception =\
-            graph.Placeholder(np.float32, shape=(None, cfg.d), name="ph_perception")
+            graph.Placeholder(np.float32, shape=(None, fun_config.config.d), name="ph_perception")
         # tf.placeholder(tf.float32, shape=[None, cfg.d], name="ph_perception")
 
         self.Mspace =\
-            layer.Dense(self.ph_perception, cfg.d,  # d=256
+            layer.Dense(self.ph_perception, fun_config.config.d,  # d=256
                         activation=layer.Activation.Relu)
         Mspace_expanded = graph.Expand(self.Mspace, 0)
 
-        self.lstm = DilatedLSTMCell(cfg.d, num_cores=cfg.d)
+        self.lstm = lstm.DilatedLSTMCell(fun_config.config.d, num_cores=fun_config.config.d)
         # needs wrap as layer to retrieve weights
 
         self.ph_step_size =\
@@ -51,7 +53,7 @@ class _ManagerNetwork(subgraph.Subgraph):
                                                           initial_state=self.ph_initial_lstm_state,
                                                           sequence_length=self.ph_step_size,
                                                           time_major=False)
-        lstm_outputs = tf.reshape(lstm_outputs, [-1, cfg.d])
+        lstm_outputs = tf.reshape(lstm_outputs, [-1, fun_config.config.d])
         sg_lstm_outputs = graph.TfNode(lstm_outputs)
 
         self.goal = tf.nn.l2_normalize(graph.Flatten(sg_lstm_outputs), dim=1)
@@ -80,9 +82,9 @@ class GlobalManagerNetwork(subgraph.Subgraph):
 
         sg_optimizer = graph.RMSPropOptimizer(
             learning_rate=sg_learning_rate,
-            decay=cfg.RMSProp.decay,
+            decay=fun_config.config.RMSProp.decay,
             momentum=0.0,
-            epsilon=cfg.RMSProp.epsilon
+            epsilon=fun_config.config.RMSProp.epsilon
         )
 
         sg_gradients = layer.Gradients(sg_weights, optimizer=sg_optimizer)
@@ -149,11 +151,11 @@ class _WorkerNetwork(_PerceptionNetwork):
     def build_graph(self):
         super(_WorkerNetwork, self).__init__()
 
-        self.lstm = CustomBasicLSTMCell(cfg.d)  # d=256
+        self.lstm = lstm.CustomBasicLSTMCell(fun_config.config.d)  # d=256
         # needs wrap as layer to retrieve weights
 
         self.ph_goal =\
-            graph.Placeholder(np.float32, shape=(None, cfg.d), name="ph_goal")
+            graph.Placeholder(np.float32, shape=(None, fun_config.config.d), name="ph_goal")
         # self.ph_goal = tf.placeholder(tf.float32, [None, cfg.d], name="ph_goal")
 
         perception_expanded = graph.Expand(self.perception.node, 0)
@@ -170,19 +172,23 @@ class _WorkerNetwork(_PerceptionNetwork):
                                                           initial_state=self.ph_initial_lstm_state,
                                                           sequence_length=self.ph_step_size,
                                                           time_major=False)
-        lstm_outputs = tf.reshape(lstm_outputs, [-1, cfg.d])
+        lstm_outputs = tf.reshape(lstm_outputs, [-1, fun_config.config.d])
         sg_lstm_outputs = graph.TfNode(lstm_outputs)
 
-        U = layer.LinearLayer(sg_lstm_outputs, shape=(cfg.d, cfg.action_size * cfg.k),
+        U = layer.LinearLayer(sg_lstm_outputs,
+                              shape=(fun_config.config.d,
+                                    fun_config.config.action_size * fun_config.config.k),
                               transformation=tf.matmul)
-        U_embedding = tf.transpose(tf.reshape(U, [cfg.action_size, cfg.k, -1]))
+        U_embedding = tf.transpose(tf.reshape(U, [fun_config.config.action_size,
+                                                  fun_config.config.k, -1]))
 
-        w = layer.LinearLayer(self.ph_goal, shape=(cfg.d, cfg.k),
+        w = layer.LinearLayer(self.ph_goal, shape=(fun_config.config.d, fun_config.config.k),
                               transformation=tf.matmul, bias=False)
-        w_reshaped = tf.reshape(w.node, [-1, 1, cfg.k])
+        w_reshaped = tf.reshape(w.node, [-1, 1, fun_config.config.k])
 
         self.pi = layer.MatmulLayer(w_reshaped, U_embedding, activation=layer.Activation.Softmax)
-        self.vi = layer.LinearLayer(sg_lstm_outputs, shape=(cfg.d, 1), transformation=tf.matmul)
+        self.vi = layer.LinearLayer(sg_lstm_outputs, shape=(fun_config.config.d, 1),
+                                    transformation=tf.matmul)
 
         self.weights = layer.Weights(self.weights,
                                      graph.TfNode((self.lstm.matrix, self.lstm.bias)),
@@ -203,9 +209,9 @@ class GlobalWorkerNetwork(subgraph.Subgraph):
 
         sg_optimizer = graph.RMSPropOptimizer(
             learning_rate=sg_learning_rate,
-            decay=cfg.RMSProp.decay,
+            decay=fun_config.config.RMSProp.decay,
             momentum=0.0,
-            epsilon=cfg.RMSProp.epsilon
+            epsilon=fun_config.config.RMSProp.epsilon
         )
 
         sg_gradients = layer.Gradients(sg_weights, optimizer=sg_optimizer)
