@@ -71,10 +71,10 @@ class BaseLayer(subgraph.Subgraph):
 
 class Convolution(BaseLayer):
     def build_graph(self, x, n_filters, filter_size, stride,
-            border=Border.Valid, activation=Activation.Null):
+                    border=Border.Valid, activation=Activation.Null):
         shape = filter_size + [x.node.shape.as_list()[-1], n_filters]
         tr = lambda x, W: tf.nn.conv2d(x, W, strides=[1] + stride + [1],
-                    padding=border)
+                                       padding=border)
         return super(Convolution, self).build_graph(x, shape, tr, activation)
 
 
@@ -88,10 +88,10 @@ class Dense(BaseLayer):
 
 class LSTM(subgraph.Subgraph):
     def build_graph(self, x, batch_size=1, size=256):
-        self.ph_step= graph.Placeholder(np.int32, [batch_size])
+        self.ph_step = graph.Placeholder(np.int32, [batch_size])
 
         self.ph_state = graph.TfNode(tuple(graph.Placeholder(np.float32, [batch_size, size]).node
-                for _ in range(2)))
+                                           for _ in range(2)))
 
         self.zero_state = tuple(np.zeros([batch_size, size]) for _ in range(2))
 
@@ -106,8 +106,8 @@ class LSTM(subgraph.Subgraph):
             self.state = graph.TfNode(self.state)
             scope.reuse_variables()
             self.weight = graph.Variables(
-                    graph.TfNode(tf.get_variable('basic_lstm_cell/weights')),
-                    graph.TfNode(tf.get_variable('basic_lstm_cell/biases')))
+                graph.TfNode(tf.get_variable('basic_lstm_cell/weights')),
+                graph.TfNode(tf.get_variable('basic_lstm_cell/biases')))
 
         return outputs
 
@@ -160,15 +160,16 @@ class Input(subgraph.Subgraph):
         if np.prod(input.shape) == 0:
             input_shape = [1]
         self.ph_state = graph.Placeholder(np.float32,
-                shape=[None] + input_shape + [input.history])
+                            shape=[None] + input_shape + [input.history])
 
-        if input.use_convolutions and descs is None:
+        if input.use_convolutions:
             descs = [
-                    dict(type=Convolution, n_filters=16, filter_size=[8, 8],
-                        stride=[4, 4], activation=Activation.Relu),
-                    dict(type=Convolution, n_filters=32, filter_size=[4, 4],
-                        stride=[2, 2], activation=Activation.Relu)]
+                dict(type=Convolution, n_filters=16, filter_size=[8, 8],
+                     stride=[4, 4], activation=Activation.Relu),
+                dict(type=Convolution, n_filters=32, filter_size=[4, 4],
+                     stride=[2, 2], activation=Activation.Relu)]
 
+        descs = [] if descs is None else descs
         layers = GenericLayers(self.ph_state, descs)
 
         self.weight = layers.weight
@@ -187,15 +188,15 @@ class Weights(subgraph.Subgraph):
 class Gradients(subgraph.Subgraph):
     def build_graph(self, weights, loss=None, optimizer=None, norm=None):
         if loss is not None:
-            if norm is not None:
+            '''if norm is not None:
                 self.calculate = graph.TfNode(utils.Utils.reconstruct(
                     tf.clip_by_norm(tf.gradients(
                         loss.node, list(utils.Utils.flatten(weights.node))),
                         norm), weights.node))
-            else:
-                self.calculate = graph.TfNode(utils.Utils.reconstruct(tf.gradients(
-                    loss.node, list(utils.Utils.flatten(weights.node))), weights.node))
+            else:'''
+            self.calculate = graph.TfNode(utils.Utils.reconstruct(tf.gradients(
+                loss.node, list(utils.Utils.flatten(weights.node))), weights.node))
         if optimizer is not None:
             self.ph_gradients = graph.Placeholders(weights)
             self.apply = graph.TfNode(optimizer.node.apply_gradients(
-                    utils.Utils.izip(self.ph_gradients.node, weights.node)))
+                utils.Utils.izip(self.ph_gradients.node, weights.node)))
