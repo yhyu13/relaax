@@ -8,6 +8,14 @@ from networks import A3CLocalNetwork
 from config import cfg
 
 
+class SetFunction(object):
+    def __init__(self, func):
+        self.func = func
+
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+
+
 class A3CTrainingThread(object):
     def __init__(self,
                  thread_index,
@@ -31,7 +39,11 @@ class A3CTrainingThread(object):
 
         self.env = gym.make(cfg.env_name)
         self.env.seed(113 * thread_index)
-        self.state = _process_state(self.env.reset())
+
+        self.process_state = SetFunction(_process_state)
+        if cfg.history_len > 1:
+            self.process_state = SetFunction(_process_state)
+        self.state = self.process_state(self.env.reset())
 
         self.local_t = 0
         self.episode_reward = 0
@@ -93,10 +105,10 @@ class A3CTrainingThread(object):
                     summary_writer.add_summary(summary_str, global_t)
 
                 self.episode_reward = 0
-                self.state = _process_state(self.env.reset())
+                self.state = self.process_state(self.env.reset())
                 self.local_network.reset_state()    # may be move further after update
                 break
-            self.state = _process_state(env_state)
+            self.state = self.process_state(env_state)
 
         R = 0.0
         if not terminal_end:

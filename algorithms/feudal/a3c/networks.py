@@ -8,8 +8,12 @@ from config import cfg
 
 class _A3CNetwork(object):
     def __init__(self, thread_index):
-        W_conv1 = _conv_weight_variable([8, 8, 3, 16])   # stride=4
-        b_conv1 = _conv_bias_variable([16], 8, 8, 3)     # 3<>12-ch or 3D-3x4
+        channels = cfg.state_size[-1]
+        if cfg.history_len > 1:
+            channels = cfg.history_len
+
+        W_conv1 = _conv_weight_variable([8, 8, channels, 16])   # stride=4
+        b_conv1 = _conv_bias_variable([16], 8, 8, channels)     # 3<>12-ch or 3D-3x4
 
         W_conv2 = _conv_weight_variable([4, 4, 16, 32])  # stride=2
         b_conv2 = _conv_bias_variable([32], 4, 4, 16)
@@ -29,7 +33,10 @@ class _A3CNetwork(object):
         b_fc3 = _fc_bias_variable([1], 256)
 
         # state (input)
-        self.s = tf.placeholder("float", [None] + cfg.state_size)  # (?, 84, 84, 3)
+        shape = [None] + cfg.state_size
+        if cfg.history_len > 1:
+            shape = [None] + cfg.state_size + [cfg.history_len]
+        self.s = tf.placeholder("float", shape, name='input_state')  # (?, 84, 84, 3)
 
         h_conv1 = tf.nn.relu(_conv2d(self.s, W_conv1, 4) + b_conv1)
         # h_conv1 (?, 20, 20, 16)
