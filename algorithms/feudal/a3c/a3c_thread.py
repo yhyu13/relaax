@@ -40,13 +40,15 @@ class A3CTrainingThread(object):
         self.env = gym.make(cfg.env_name)
         self.env.seed(113 * thread_index)
 
-        self.process_state = SetFunction(_process_state)
-        if cfg.history_len > 1:
-            self.process_state = SetFunction(_process_state)
-        self.state = self.process_state(self.env.reset())
-
         self.local_t = 0
         self.episode_reward = 0
+
+        self.process_state = SetFunction(_process_state)
+        self.terminal_end = None
+        if cfg.history_len > 1:
+            self.obsQueue = None
+            self.process_state = SetFunction(self._update_state)
+        self.state = self.process_state(self.env.reset())
 
         # summary for tensorboard
         if thread_index == 0:
@@ -66,7 +68,7 @@ class A3CTrainingThread(object):
 
     def process(self, sess, global_t, summaries, summary_writer):
         states, actions, rewards, values = [], [], [], []
-        terminal_end = False
+        self.terminal_end = False
 
         # copy weights from shared to local
         sess.run(self.sync)
@@ -96,7 +98,7 @@ class A3CTrainingThread(object):
             rewards.append(np.clip(reward, -1, 1))
 
             if terminal:
-                terminal_end = True
+                self.terminal_end = True
                 print("Score:", self.episode_reward)
 
                 if self.thread_index == 0:
@@ -111,7 +113,7 @@ class A3CTrainingThread(object):
             self.state = self.process_state(env_state)
 
         R = 0.0
-        if not terminal_end:
+        if not self.terminal_end:
             R = self.local_network.run_value(sess, self.state)
 
         actions.reverse()
@@ -155,9 +157,35 @@ class A3CTrainingThread(object):
         diff_local_t = self.local_t - start_local_t
         return diff_local_t
 
+    def _update_state(self, screen):
+        obs = _convert_state(screen)
+        axis = len(obs.shape)  # extra dimension for observation
+        new_obs = np.reshape(obs, obs.shape + (1,))
+        if not self.terminal_end and self.local_t != 0:
+            # remove oldest observation from the begining of the observation queue
+            self.obsQueue = np.delete(self.obsQueue, 0, axis=axis)
+
+            # append latest observation to the end of the observation queue
+            self.obsQueue = np.append(self.obsQueue, new_obs, axis=axis)
+        else:
+            # copy observation several times to form initial observation queue
+            self.obsQueue = np.repeat(new_obs, cfg.history_len, axis=axis)
+        return self.obsQueue
+
 
 def _process_state(screen):
     resized_screen = imresize(screen, (110, 84))
+    state = resized_screen[18:102, :]
+
+    state = state.astype(np.float32)
+    state *= (1.0 / 255.0)
+    return state
+
+
+def _convert_state(screen):
+    gray = np.dot(screen[..., :3], [0.299, 0.587, 0.114])
+
+    resized_screen = imresize(gray, (110, 84))
     state = resized_screen[18:102, :]
 
     state = state.astype(np.float32)

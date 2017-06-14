@@ -8,12 +8,12 @@ class Config:
         self.action_size = 18   # 6 (Lab's medium) | 18 (MR) | 6 (Pong)
 
         # size of the input observation (image to pass through 2D Convolution)
-        self.state_size = [84, 84, 3]   # Box(210, 160, 3) - default [84, 84, 3]
+        self.state_size = [84, 84]   # Box(210, 160, 3) - default [84, 84, 3]
 
-        self.history_len = 1    # if >1 then stack frames
+        self.history_len = 4    # if >1 then stack frames
 
         # number of threads
-        self.threads_num = 2
+        self.threads_num = 8
 
         # local loop size for one episode
         self.LOCAL_T_MAX = 5   # 10 (Lab) | 10 (MR) | 20 (Pong)
