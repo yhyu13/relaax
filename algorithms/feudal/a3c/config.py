@@ -32,6 +32,8 @@ class Config:
 
         self.GAMMA = 0.99  # discount factor for rewards
 
+        self.grad_norm = 40.0
+
         # lab's map
         self.level = 'tests/my_map'
 
