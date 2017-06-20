@@ -185,9 +185,9 @@ def _process_state(screen):
 
 
 def _convert_state(screen):
-    gray = np.dot(screen[..., :3], [0.299, 0.587, 0.114])
+    resized_screen = imresize(screen, (110, 84))
 
-    resized_screen = imresize(gray, (110, 84))
+    resized_screen = np.dot(resized_screen[..., :3], [0.299, 0.587, 0.114])
     state = resized_screen[18:102, :]
 
     state = state.astype(np.float32)
