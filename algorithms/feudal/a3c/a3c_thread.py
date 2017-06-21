@@ -30,7 +30,7 @@ class A3CTrainingThread(object):
         compute_gradients = tf.gradients(self.local_network.total_loss,
                                          self.local_network.weights)
         if cfg.grad_norm > 0:
-            compute_gradients, _ = tf.clip_by_global_norm(compute_gradients, 40.0)
+            compute_gradients, _ = tf.clip_by_global_norm(compute_gradients, cfg.grad_norm)
 
         self.apply_gradients = global_network.optimizer.apply_gradients(
             zip(compute_gradients, global_network.weights)
