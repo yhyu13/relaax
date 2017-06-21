@@ -164,7 +164,7 @@ class A3CTrainingThread(object):
         axis = len(obs.shape)  # extra dimension for observation
         new_obs = np.reshape(obs, obs.shape + (1,))
         if not self.terminal_end and self.local_t != 0:
-            # remove oldest observation from the begining of the observation queue
+            # remove oldest observation from the beginning of the observation queue
             self.obsQueue = np.delete(self.obsQueue, 0, axis=axis)
 
             # append latest observation to the end of the observation queue
