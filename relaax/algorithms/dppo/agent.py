@@ -23,7 +23,7 @@ class Agent(object):
     # environment is ready and
     # waiting for agent to initialize
     def init(self, exploit=False):
-        self.batch = dppo_batch.DPPOBatch(self.ps, exploit)
+        self.batch = dppo_batch.DPPOBatch(self.ps, self.metrics, exploit)
         self.batch.begin()
         return True
 

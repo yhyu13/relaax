@@ -26,3 +26,5 @@ algorithm:
   num_gradients: 4
   dc_lambda: 0.05
 
+  policy_iterations: 10
+  value_func_iterations: 10
