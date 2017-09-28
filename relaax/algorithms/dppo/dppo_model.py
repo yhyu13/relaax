@@ -79,7 +79,7 @@ class PolicyModel(subgraph.Subgraph):
 
         summaries = tf.summary.merge([
             tf.summary.scalar('policy_loss', sg_ppo_clip_loss.node),
-            tf.summary.scalar('actor_gradients_global_norm', sg_ppo_clip_gradients.global_norm.node),
+            tf.summary.scalar('actor_gradients_global_norm', sg_ppo_clip_gradients.global_norm),
             tf.summary.scalar('actor_weights_global_norm', sg_network.weights.global_norm)])
 
         grad_feeds = dict(state=sg_network.ph_state,
