@@ -160,7 +160,6 @@ class DPPOBatch(object):
                      advantage=advantages,
                      old_prob=experience['old_prob'])
 
-        # return self.session.policy.op_compute_ppo_clip_gradients(**feeds)
         gradients, summaries = self.session.policy.op_compute_ppo_clip_gradients_and_summaries(**feeds)
         self.metrics.summary(summaries)
 
@@ -177,7 +176,11 @@ class DPPOBatch(object):
         rwd = experience['reward']
         obs_values = MniAdvantage(rwd, np.zeros(len(rwd)), 0, dppo_config.config.gamma)
 
-        return self.session.value_func.op_compute_gradients(state=experience['state'], ytarg_ny=obs_values)
+        gradients, summaries = self.session.value_func.op_compute_gradients_and_summaries(state=experience['state'],
+                                                                                          ytarg_ny=obs_values)
+        self.metrics.summary(summaries)
+
+        return gradients
 
     def apply_value_func_gradients(self, gradients, size):
         self.ps.session.value_func.op_submit_gradients(gradients=gradients, step=self.value_step)
@@ -204,8 +207,8 @@ def MniAdvantage(rewards, values, final_value, gamma):
 def kStepReward(rewards, gamma, k):
     new_rewards = np.zeros(len(rewards))
 
-    # TODO: optimize
+    # TODO: finish, optimize
     for i in range(len(rewards) // k):
         for j in range(k):
             idx = i * k + j
-            new_rewards[idx] = rewards[idx] * np.pow(gamma, j)
+            new_rewards[idx] = rewards[idx] * np.power(gamma, j)

@@ -20,7 +20,6 @@ class Session(object):
             assert len(kwargs) == 0
             self.model, = args
 
-
     def __getattr__(self, name):
         return SessionMethod(self, name, getattr(self.model, name))
 

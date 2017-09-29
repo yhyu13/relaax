@@ -73,7 +73,7 @@ class PolicyModel(subgraph.Subgraph):
         # Regular gradients
         sg_ppo_clip_gradients = optimizer.Gradients(sg_network.weights,
                                                     loss=sg_ppo_clip_loss,
-                                                    norm=40)
+                                                    norm=dppo_config.config.gradients_norm_clipping)
 
         # batch_size = tf.to_float(tf.shape(sg_network.ph_state.node)[0])
 
@@ -152,8 +152,15 @@ class ValueModel(subgraph.Subgraph):
 
         loss = graph.TfNode(l2.node + mse.node)
 
-        sg_gradients = optimizer.Gradients(sg_value_net.weights, loss=loss)
+        sg_gradients = optimizer.Gradients(sg_value_net.weights, loss=loss,
+                                           norm=dppo_config.config.gradients_norm_clipping)
         sg_gradients_flatten = GetVariablesFlatten(sg_gradients.calculate)
+
+        summaries = tf.summary.merge([tf.summary.scalar('value_func_loss', loss.node),
+                                      tf.summary.scalar('value_func_l2', l2.node),
+                                      tf.summary.scalar('value_func_mse', mse.node),
+                                      tf.summary.scalar('grad_norm', sg_gradients.global_norm),
+                                      tf.summary.scalar('weights_norm', sg_value_net.weights.global_norm)])
 
         # Op to compute value of a state
         self.op_value = self.Op(sg_value_net.value, state=sg_value_net.ph_state)
@@ -170,6 +177,10 @@ class ValueModel(subgraph.Subgraph):
 
         self.op_compute_gradients = self.Op(sg_gradients.calculate, state=sg_value_net.ph_state,
                                             ytarg_ny=ph_ytarg_ny)
+
+        self.op_compute_gradients_and_summaries = self.Ops(sg_gradients.calculate, summaries,
+                                                           state=sg_value_net.ph_state,
+                                                           ytarg_ny=ph_ytarg_ny)
 
         self.op_compute_loss_and_gradient_flatten = self.Ops(loss, sg_gradients_flatten, state=sg_value_net.ph_state,
                                                              ytarg_ny=ph_ytarg_ny)
