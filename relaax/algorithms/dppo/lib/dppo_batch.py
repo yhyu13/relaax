@@ -16,11 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 class DPPOBatch(object):
-    def __init__(self, parameter_server, exploit):
+    def __init__(self, parameter_server, metrics_server, exploit):
         self.exploit = exploit
         self.ps = parameter_server
+        self.metrics = metrics_server
         self.session = session.Session(policy=dppo_model.PolicyModel(), value_func=dppo_model.ValueModel())
-        #self.episode = episode.Episode('reward', 'state', 'action')
+        # self.episode = episode.Episode('reward', 'state', 'action')
         self.episode = None
         self.reset()
         self.last_state = None
@@ -34,7 +35,6 @@ class DPPOBatch(object):
             self.prob_type = DiagGauss(dppo_config.config.output.action_size)
         else:
             self.prob_type = Categorical(dppo_config.config.output.action_size)
-
 
     @property
     def experience(self):
@@ -65,20 +65,19 @@ class DPPOBatch(object):
     def end(self):
         experience = self.episode.end()
         if not self.exploit:
-            #self.apply_policy_gradients(self.compute_policy_gradients(experience), len(experience))
+            # self.apply_policy_gradients(self.compute_policy_gradients(experience), len(experience))
 
             # Send PPO policy gradient M times and value function gradient B times
             # from https://arxiv.org/abs/1707.02286
 
-            for i in range(10):
+            for i in range(dppo_config.config.policy_iterations):
                 self.apply_policy_gradients(self.compute_policy_gradients(experience), len(experience))
                 self.load_shared_policy_parameters()
             logger.debug('Policy update finished')
-            for i in range(10):
+            for i in range(dppo_config.config.value_func_iterations):
                 self.apply_value_func_gradients(self.compute_value_func_gradients(experience), len(experience))
                 self.load_shared_value_func_parameters()
             logger.debug('Value function update finished')
-
 
     def reset(self):
         self.episode = episode.Episode('reward', 'state', 'action', 'old_prob')
@@ -142,26 +141,29 @@ class DPPOBatch(object):
 
     def action_and_prob_from_policy(self, state):
         assert state is not None
-        #logger.debug("afp action: {}".format(state))
+        # logger.debug("afp action: {}".format(state))
         state = np.asarray(state)
         state = np.reshape(state, (1,) + state.shape)
         probabilities = self.session.policy.op_get_action(state=state)
-        #logger.debug("probs: {}".format(probabilities))
-        #return utils.choose_action_descrete(probabilities, self.exploit), probabilities
+        # logger.debug("probs: {}".format(probabilities))
+        # return utils.choose_action_descrete(probabilities, self.exploit), probabilities
         return self.prob_type.sample(probabilities)[0], probabilities[0]
 
     def compute_policy_gradients(self, experience):
 
-        #print(experience['state'])
+        # print(experience['state'])
         values = self.compute_state_values(experience['state'])
         advantages = MniAdvantage(experience['reward'], values, 0, dppo_config.config.gamma)
 
-        return self.session.policy.op_compute_ppo_clip_gradients(
-            state=experience['state'],
-            action=experience['action'],
-            advantage=advantages,
-            old_prob=experience['old_prob']
-        )
+        feeds = dict(state=experience['state'],
+                     action=experience['action'],
+                     advantage=advantages,
+                     old_prob=experience['old_prob'])
+
+        gradients, summaries = self.session.policy.op_compute_ppo_clip_gradients_and_summaries(**feeds)
+        self.metrics.summary(summaries)
+
+        return gradients
 
     def apply_policy_gradients(self, gradients, size):
         self.ps.session.policy.op_submit_gradients(gradients=gradients, step=self.policy_step)
@@ -174,10 +176,15 @@ class DPPOBatch(object):
         rwd = experience['reward']
         obs_values = MniAdvantage(rwd, np.zeros(len(rwd)), 0, dppo_config.config.gamma)
 
-        return self.session.value_func.op_compute_gradients(state=experience['state'], ytarg_ny=obs_values)
+        gradients, summaries = self.session.value_func.op_compute_gradients_and_summaries(state=experience['state'],
+                                                                                          ytarg_ny=obs_values)
+        self.metrics.summary(summaries)
+
+        return gradients
 
     def apply_value_func_gradients(self, gradients, size):
         self.ps.session.value_func.op_submit_gradients(gradients=gradients, step=self.value_step)
+
 
 # Compute advantage estimates using rewards and value function predictions
 # Mni et al, 2016
@@ -200,8 +207,8 @@ def MniAdvantage(rewards, values, final_value, gamma):
 def kStepReward(rewards, gamma, k):
     new_rewards = np.zeros(len(rewards))
 
-    # TODO: optimize
+    # TODO: finish, optimize
     for i in range(len(rewards) // k):
         for j in range(k):
             idx = i * k + j
-            new_rewards[idx] = rewards[idx] * np.pow(gamma, j)
+            new_rewards[idx] = rewards[idx] * np.power(gamma, j)

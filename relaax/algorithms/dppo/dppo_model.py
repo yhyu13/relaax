@@ -13,7 +13,8 @@ from relaax.common.algorithms.lib import utils
 
 from . import dppo_config
 
-from relaax.algorithms.trpo.trpo_model import GetVariablesFlatten, SetVariablesFlatten, Categorical, ProbType, ConcatFixedStd
+from relaax.algorithms.trpo.trpo_model import GetVariablesFlatten, SetVariablesFlatten, Categorical, ProbType, \
+    ConcatFixedStd
 
 logger = logging.getLogger(__name__)
 
@@ -71,12 +72,27 @@ class PolicyModel(subgraph.Subgraph):
 
         # Regular gradients
         sg_ppo_clip_gradients = optimizer.Gradients(sg_network.weights,
-                                                    loss=sg_ppo_clip_loss)
+                                                    loss=sg_ppo_clip_loss,
+                                                    norm=dppo_config.config.gradients_norm_clipping)
+
+        # batch_size = tf.to_float(tf.shape(sg_network.ph_state.node)[0])
+
+        summaries = tf.summary.merge([
+            tf.summary.scalar('policy_loss', sg_ppo_clip_loss.node),
+            tf.summary.scalar('actor_gradients_global_norm', sg_ppo_clip_gradients.global_norm),
+            tf.summary.scalar('actor_weights_global_norm', sg_network.weights.global_norm)])
+
+        grad_feeds = dict(state=sg_network.ph_state,
+                          action=sg_probtype.ph_sampled_variable,
+                          advantage=ph_adv_n,
+                          old_prob=ph_oldprob_np)
+
         self.op_compute_ppo_clip_gradients = self.Op(sg_ppo_clip_gradients.calculate,
-                                                     state=sg_network.ph_state,
-                                                     action=sg_probtype.ph_sampled_variable,
-                                                     advantage=ph_adv_n,
-                                                     old_prob=ph_oldprob_np)
+                                                     **grad_feeds)
+
+        self.op_compute_ppo_clip_gradients_and_summaries = self.Ops(sg_ppo_clip_gradients.calculate,
+                                                                    summaries,
+                                                                    **grad_feeds)
 
         # Flattened gradients
         sg_ppo_clip_gradients_flatten = GetVariablesFlatten(sg_ppo_clip_gradients.calculate)
@@ -99,7 +115,6 @@ class PolicyModel(subgraph.Subgraph):
 
 class ValueNet(subgraph.Subgraph):
     def build_graph(self):
-
         input = layer.Input(dppo_config.config.input)
 
         activation = layer.Activation.get_activation(dppo_config.config.activation)
@@ -137,8 +152,15 @@ class ValueModel(subgraph.Subgraph):
 
         loss = graph.TfNode(l2.node + mse.node)
 
-        sg_gradients = optimizer.Gradients(sg_value_net.weights, loss=loss)
+        sg_gradients = optimizer.Gradients(sg_value_net.weights, loss=loss,
+                                           norm=dppo_config.config.gradients_norm_clipping)
         sg_gradients_flatten = GetVariablesFlatten(sg_gradients.calculate)
+
+        summaries = tf.summary.merge([tf.summary.scalar('value_func_loss', loss.node),
+                                      tf.summary.scalar('value_func_l2', l2.node),
+                                      tf.summary.scalar('value_func_mse', mse.node),
+                                      tf.summary.scalar('grad_norm', sg_gradients.global_norm),
+                                      tf.summary.scalar('weights_norm', sg_value_net.weights.global_norm)])
 
         # Op to compute value of a state
         self.op_value = self.Op(sg_value_net.value, state=sg_value_net.ph_state)
@@ -154,7 +176,11 @@ class ValueModel(subgraph.Subgraph):
         self.op_set_weights_flatten = self.Op(sg_set_weights_flatten, value=sg_set_weights_flatten.ph_value)
 
         self.op_compute_gradients = self.Op(sg_gradients.calculate, state=sg_value_net.ph_state,
-                                             ytarg_ny=ph_ytarg_ny)
+                                            ytarg_ny=ph_ytarg_ny)
+
+        self.op_compute_gradients_and_summaries = self.Ops(sg_gradients.calculate, summaries,
+                                                           state=sg_value_net.ph_state,
+                                                           ytarg_ny=ph_ytarg_ny)
 
         self.op_compute_loss_and_gradient_flatten = self.Ops(loss, sg_gradients_flatten, state=sg_value_net.ph_state,
                                                              ytarg_ny=ph_ytarg_ny)
@@ -231,11 +257,11 @@ class SharedWeights(subgraph.Subgraph):
         self.op_init_weight_history = self.Call(init_weight_history)
 
         def func_dc_gradient(session, gradients, step):
-            #logger.debug("session = {}, {}".format(session._name, session._full_path()))
+            # logger.debug("session = {}, {}".format(session._name, session._full_path()))
             # Assume step to be global step number
-            #current_step = session.op_n_step()
+            # current_step = session.op_n_step()
 
-            #current_weights = session.op_get_weights()
+            # current_weights = session.op_get_weights()
             current_weights_f = session.op_get_weights_flatten()
 
             old_weights_f = self.weights_history.get(step, current_weights_f)

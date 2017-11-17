@@ -8,7 +8,7 @@ algorithm:
 
   output:
     continuous: false
-    action_size: 4
+    action_size: 2
 
   hidden_sizes: [10]
   activation: relu
@@ -21,8 +21,11 @@ algorithm:
 
   clip_e: 0.2
   learning_rate: 0.001
+  gradients_norm_clipping: 40.
 
   combine_gradient: dc
   num_gradients: 4
   dc_lambda: 0.05
 
+  policy_iterations: 10
+  value_func_iterations: 10
