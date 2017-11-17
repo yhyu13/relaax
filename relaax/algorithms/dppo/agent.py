@@ -36,6 +36,8 @@ class Agent(object):
 
         if (len(self.batch.experience) == dppo_config.config.batch_size) or terminal:
             self.batch.end()
+            if terminal:
+                self.reset()
             self.batch.begin()
 
         return action
