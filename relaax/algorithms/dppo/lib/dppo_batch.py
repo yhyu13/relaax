@@ -89,12 +89,14 @@ class DPPOBatch(object):
                 state = np.asarray([0])
             state = np.reshape(state, state.shape + (1,))
         action, prob = self.get_action_and_prob(state)
+
+        if not terminal:
+            self.metrics.histogram('state', self.final_state, self.global_step)
+            self.metrics.histogram('action', action, self.global_step)
+        self.global_step += 1
+
         self.keep_state_action_prob(state, action, prob)
         self.last_terminal = terminal
-
-        self.metrics.histogram('state', self.final_state, self.global_step)
-        self.metrics.histogram('action', action, self.global_step)
-        self.global_step += 1
         return action
 
     def end(self):
