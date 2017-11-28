@@ -150,7 +150,8 @@ class PolicyModel(subgraph.Subgraph):
         if dppo_config.config.use_lstm:
             feeds.update(dict(lstm_state=sg_network.ph_lstm_state))
 
-        self.op_compute_ppo_clip_gradients = self.Op(sg_ppo_clip_gradients.calculate, **feeds)
+        self.op_compute_ppo_clip_gradients = \
+            self.Ops(sg_ppo_clip_gradients.calculate, sg_pol_clip_loss, **feeds)
         if dppo_config.config.use_lstm:
             self.op_compute_ppo_clip_gradients = self.Ops(sg_ppo_clip_gradients.calculate,
                                                           sg_network.lstm_state, **feeds)
@@ -213,7 +214,7 @@ class ValueModel(subgraph.Subgraph):
         if dppo_config.config.use_lstm:
             feeds.update(dict(lstm_state=sg_value_net.ph_lstm_state))
 
-        self.op_compute_gradients = self.Op(sg_gradients.calculate, **feeds)
+        self.op_compute_gradients = self.Ops(sg_gradients.calculate, loss, **feeds)
         if dppo_config.config.use_lstm:
             self.op_compute_gradients = self.Ops(sg_gradients.calculate, sg_value_net.lstm_state, **feeds)
 
