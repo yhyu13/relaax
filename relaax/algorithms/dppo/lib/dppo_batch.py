@@ -101,7 +101,7 @@ class DPPOBatch(object):
 
     def end(self):
         if not self.exploit:
-            batch = self.get_batch()
+            batch, steps = self.get_batch()
             # Send PPO policy gradient M times and value function gradient B times
             # from https://arxiv.org/abs/1707.02286
             iterations = min(dppo_config.config.policy_iterations, dppo_config.config.value_func_iterations)
@@ -129,6 +129,8 @@ class DPPOBatch(object):
                         self.update_value_func(mini_batch)
 
             logger.debug('Policy & Value function update finished')
+            self.ps.session.policy.op_inc_global_step(increment=steps)
+            self.ps.session.value_func.op_inc_global_step(increment=steps)
 
     def get_batch(self):
         batch = self.episode.subset(elements=self.episode.size,
@@ -156,7 +158,7 @@ class DPPOBatch(object):
 
         if not dppo_config.config.use_lstm:
             batch.shuffle()
-        return batch
+        return batch, steps
 
     def update_policy(self, experience):
         self.apply_policy_gradients(self.compute_policy_gradients(experience))

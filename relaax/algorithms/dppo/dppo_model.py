@@ -238,6 +238,7 @@ class ValueModel(subgraph.Subgraph):
 class SharedWeights(subgraph.Subgraph):
     def build_graph(self, weights):
         # Build graph
+        sg_update_step = graph.GlobalStep()
         sg_global_step = graph.GlobalStep()
         sg_weights = weights
 
@@ -257,13 +258,14 @@ class SharedWeights(subgraph.Subgraph):
         sg_set_weights_flatten = SetVariablesFlatten(sg_weights)
 
         # Expose public API
-        self.op_n_step = self.Op(sg_global_step.n)
+        self.op_n_step = self.Op(sg_update_step.n)
+        self.op_inc_global_step = self.Op(sg_global_step.increment, increment=sg_global_step.ph_increment)
         self.op_get_weights = self.Op(sg_weights)
-        self.op_get_weights_signed = self.Ops(sg_weights, sg_global_step.n)
+        self.op_get_weights_signed = self.Ops(sg_weights, sg_update_step.n)
 
         self.op_apply_gradients = self.Ops(sg_gradients.apply,
-                                           sg_global_step.increment, gradients=sg_gradients.ph_gradients,
-                                           increment=sg_global_step.ph_increment)
+                                           sg_update_step.increment, gradients=sg_gradients.ph_gradients,
+                                           increment=sg_update_step.ph_increment)
 
         self.op_get_weights_flatten = self.Op(sg_get_weights_flatten)
         self.op_set_weights_flatten = self.Op(sg_set_weights_flatten, value=sg_set_weights_flatten.ph_value)
