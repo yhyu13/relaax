@@ -223,10 +223,10 @@ class ValueModel(subgraph.Subgraph):
 
         self.op_compute_loss_and_gradient_flatten = self.Ops(sg_vf_total_loss, sg_gradients_flatten, **feeds)
 
-        losess = [sg_vf_total_loss, mse]
+        losses = [sg_vf_total_loss, mse]
         if dppo_config.config.l2_coeff is not None:
-            losess.append(l2)
-        self.op_losses = self.Ops(*losess, **feeds)
+            losses.append(l2)
+        self.op_losses = self.Ops(*losses, **feeds)
 
 
 # A generic subgraph to handle distributed weights updates
