@@ -188,9 +188,9 @@ class ValueModel(subgraph.Subgraph):
                               tf.add_n([tf.reduce_sum(tf.square(v)) for v in
                                         utils.Utils.flatten(sg_value_net.weights.node)]))
             logger.debug("ValueModel | l2={}".format(l2.node))
-            sg_vf_total_loss = graph.TfNode(l2.node + mse.node)
+            sg_vf_total_loss = graph.TfNode((l2.node + mse.node) * dppo_config.config.critic_scale)
         else:
-            sg_vf_total_loss = mse
+            sg_vf_total_loss = graph.TfNode(mse.node * dppo_config.config.critic_scale)
 
         sg_gradients = optimizer.Gradients(sg_value_net.weights, loss=sg_vf_total_loss)
         sg_gradients_flatten = GetVariablesFlatten(sg_gradients.calculate)
