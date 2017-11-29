@@ -55,7 +55,7 @@ class DPPOBatch(object):
             self.prob_type = Categorical(dppo_config.config.output.action_size)
 
         if dppo_config.config.use_filter:
-            self.filter = ZFilter(dppo_config.config.input.shape)
+            self.filter = ZFilter(dppo_config.config.input.shape, clip=5.0)
 
     @property
     def size(self):
