@@ -220,7 +220,7 @@ class DPPOBatch(object):
             new_policy_weights, new_policy_step = self.ps.session.policy.op_get_weights_signed()
         msg = "Current policy weights: {}, received weights: {}".format(self.policy_step, new_policy_step)
 
-        if (self.policy_step is None) or (new_policy_step >= self.policy_step):
+        if (self.policy_step is None) or (new_policy_step > self.policy_step):
             logger.debug(msg + ", updating weights")
             if not update_iter:
                 self.session.policy.op_assign_weights(weights=new_policy_weights)
@@ -237,7 +237,7 @@ class DPPOBatch(object):
         msg = "Current value func weights: {}, received weights: {}".format(self.value_step,
                                                                             new_value_func_step)
 
-        if (self.value_step is None) or (new_value_func_step >= self.value_step):
+        if (self.value_step is None) or (new_value_func_step > self.value_step):
             logger.debug(msg + ", updating weights")
             if not update_iter:
                 self.session.value_func.op_assign_weights(weights=new_value_func_weights)
