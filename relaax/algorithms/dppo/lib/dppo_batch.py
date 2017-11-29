@@ -162,12 +162,12 @@ class DPPOBatch(object):
 
     def update_policy(self, experience):
         self.apply_policy_gradients(self.compute_policy_gradients(experience))
-        self.load_shared_policy_parameters(update_iter=True)
+        self.load_shared_policy_parameters()    # update_iter=True
         self.metrics.scalar('pol_loss', self.pol_loss, self.policy_step)
 
     def update_value_func(self, experience):
         self.apply_value_func_gradients(self.compute_value_func_gradients(experience))
-        self.load_shared_value_func_parameters(update_iter=True)
+        self.load_shared_value_func_parameters()    # update_iter=True
         self.metrics.scalar('vf_loss', self.vf_loss, self.value_step)
 
     def reset(self):
