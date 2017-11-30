@@ -12,6 +12,7 @@ from relaax.common.algorithms.lib import utils
 from relaax.common.algorithms.lib import lr_schedule
 
 from . import dppo_config
+from .lib.utils import RunningMeanStd
 
 from relaax.algorithms.trpo.trpo_model import (GetVariablesFlatten, SetVariablesFlatten, ProbType,
                                                ConcatFixedStd)
@@ -20,8 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 class Network(subgraph.Subgraph):
-    def build_graph(self, input_placeholder):
-        input = layer.ConfiguredInput(dppo_config.config.input, input_placeholder=input_placeholder)
+    def build_graph(self, input_placeholder, filtered=None):
+        input = layer.ConfiguredInput(dppo_config.config.input, input_placeholder=input_placeholder,
+                                      filtered=filtered if dppo_config.config.use_filter else None)
         layers = [input]
 
         sizes = dppo_config.config.hidden_sizes
@@ -65,9 +67,13 @@ class Subnet(object):
 
 class Model(subgraph.Subgraph):
     def build_graph(self, assemble_model=False):
-        input_placeholder = layer.InputPlaceholder(dppo_config.config.input)
+        ob = input_placeholder = layer.InputPlaceholder(dppo_config.config.input)
+        # with tf.variable_scope("obfilter"):
+        self.ob_rms = RunningMeanStd(shape=input_placeholder.node.shape.as_list()[1:])
+        obs = tf.clip_by_value((ob.node - self.ob_rms.mean) / self.ob_rms.std, -5.0, 5.0)
 
-        policy_head = Network(input_placeholder)
+        filtered = obs
+        policy_head = Network(input_placeholder, filtered)
         if dppo_config.config.output.continuous:
             output = layer.Dense(policy_head, dppo_config.config.output.action_size, init_var=0.01)
             actor = ConcatFixedStd(output)
@@ -77,7 +83,8 @@ class Model(subgraph.Subgraph):
                                 activation=layer.Activation.Softmax, init_var=0.01)
             actor_layers = [actor]
 
-        value_head = Network(input_placeholder)
+        filtered = obs
+        value_head = Network(input_placeholder, filtered)
         critic = layer.Dense(value_head, 1)
 
         feeds = dict(head=actor, weights=layer.Weights(policy_head, *actor_layers),
@@ -227,6 +234,10 @@ class ValueModel(subgraph.Subgraph):
         if dppo_config.config.l2_coeff is not None:
             losses.append(l2)
         self.op_losses = self.Ops(*losses, **feeds)
+
+        # Init Op for all weights
+        sg_initialize = graph.Initialize()
+        self.op_initialize = self.Op(sg_initialize)
 
 
 # A generic subgraph to handle distributed weights updates

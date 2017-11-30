@@ -230,12 +230,15 @@ class InputPlaceholder(subgraph.Subgraph):
 
 
 class Input(subgraph.Subgraph):
-    def build_graph(self, input, descs, input_placeholder=None):
+    def build_graph(self, input, descs, input_placeholder=None, filtered=None):
         if input_placeholder is None:
             input_placeholder = InputPlaceholder(input)
         self.ph_state = input_placeholder.ph_state
 
-        layers = GenericLayers(input_placeholder, descs)
+        if filtered is None:
+            layers = GenericLayers(input_placeholder, descs)
+        else:
+            layers = GenericLayers(graph.TfNode(filtered), descs)
 
         self.weight = layers.weight
         return layers.node
@@ -253,7 +256,7 @@ class ConfiguredInput(subgraph.Subgraph):
     _MAP = collections.defaultdict(lambda: lambda x: x, type=Type.get_type,
                                    activation=Activation.get_activation, border=Border.get_border)
 
-    def build_graph(self, input, input_placeholder=None):
+    def build_graph(self, input, input_placeholder=None, filtered=None):
         if hasattr(input, 'layers'):
             descs = self.read_layers(input.layers)
         else:
@@ -270,7 +273,7 @@ class ConfiguredInput(subgraph.Subgraph):
             else:
                 descs = []
 
-        input = Input(input, descs, input_placeholder=input_placeholder)
+        input = Input(input, descs, input_placeholder=input_placeholder, filtered=filtered)
         self.ph_state = input.ph_state
         self.weight = input.weight
         return input.node

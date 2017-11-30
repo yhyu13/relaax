@@ -22,6 +22,10 @@ class DPPOBatch(object):
         self.ps = parameter_server
         model = dppo_model.Model(assemble_model=True)
         self.session = session.Session(policy=model.policy, value_func=model.value_func)
+
+        self.session.policy.op_initialize()
+        self.session.value_func.op_initialize()
+
         self.episode = None
         self.steps = 0
 

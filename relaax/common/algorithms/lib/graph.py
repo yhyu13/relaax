@@ -220,11 +220,17 @@ class GlobalStep(subgraph.Subgraph):
 class Variable(subgraph.Subgraph):
     DTYPE = {
         None: None,
-        np.int64: tf.int64
+        np.int64: tf.int64,
+        np.float64: tf.float64
     }
 
-    def build_graph(self, initial_value, dtype=None):
-        return tf.Variable(initial_value, dtype=self.DTYPE[dtype])
+    def build_graph(self, initial_value, dtype=None, name=None, trainable=True):
+        return tf.Variable(initial_value, dtype=self.DTYPE[dtype], name=name, trainable=trainable)
+
+
+class GetVariable(subgraph.Subgraph):
+    def build_graph(self, name, shape=None, dtype=None, initializer=None, trainable=True):
+        return tf.get_variable(name, shape=shape, dtype=dtype, initializer=initializer, trainable=trainable)
 
 
 class Variables(subgraph.Subgraph):
