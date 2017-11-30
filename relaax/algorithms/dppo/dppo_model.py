@@ -68,9 +68,10 @@ class Subnet(object):
 class Model(subgraph.Subgraph):
     def build_graph(self, assemble_model=False):
         ob = input_placeholder = layer.InputPlaceholder(dppo_config.config.input)
-        # with tf.variable_scope("obfilter"):
-        self.ob_rms = RunningMeanStd(shape=input_placeholder.node.shape.as_list()[1:])
-        obs = tf.clip_by_value((ob.node - self.ob_rms.mean) / self.ob_rms.std, -5.0, 5.0)
+
+        ob_rms = RunningMeanStd(shape=input_placeholder.node.shape.as_list()[1:])
+        obs = tf.clip_by_value((ob.node - ob_rms.mean) / ob_rms.std, -5.0, 5.0)
+        self.op_update_rms = self.Call(ob_rms.update)
 
         filtered = obs
         policy_head = Network(input_placeholder, filtered)

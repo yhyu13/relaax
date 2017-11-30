@@ -85,6 +85,7 @@ def function(inputs, outputs, updates=None, givens=None):
         f = _Function(inputs, [outputs], updates, givens=givens)
         return lambda *args, **kwargs: f(*args, **kwargs)[0]
 
+
 class _Function(object):
     def __init__(self, inputs, outputs, updates, givens, check_nan=False):
         for inpt in inputs:
@@ -103,7 +104,7 @@ class _Function(object):
         elif is_placeholder(inpt):
             feed_dict[inpt] = value
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, session, *args, **kwargs):
         assert len(args) <= len(self.inputs), "Too many arguments provided"
         feed_dict = {}
         # Update the args
@@ -125,7 +126,11 @@ class _Function(object):
         # Update feed dict with givens.
         for inpt in self.givens:
             feed_dict[inpt] = feed_dict.get(inpt, self.givens[inpt])
-        results = get_session().run(self.outputs_update, feed_dict=feed_dict)[:-1]
+        if session is not None:
+            sess = session
+        else:
+            sess = get_session()
+        results = sess.run(self.outputs_update, feed_dict=feed_dict)[:-1]
         if self.check_nan:
             if any(np.isnan(r).any() for r in results):
                 raise RuntimeError("Nan detected")
@@ -163,7 +168,7 @@ class RunningMeanStd(object):
                                                tf.assign_add(self._sumsq, newsumsq),
                                                tf.assign_add(self._count, newcount)])
 
-    def update(self, x):
+    def update(self, session, x):
         x = x.astype('float64')
         n = int(np.prod(self.shape))
         totalvec = np.zeros(n * 2 + 1, 'float64')
@@ -171,5 +176,5 @@ class RunningMeanStd(object):
             [x.sum(axis=0).ravel(), np.square(x).sum(axis=0).ravel(), np.array([len(x)], dtype='float64')])
         # np.sum(addvec, totalvec)
         totalvec += addvec
-        self.incfiltparams(totalvec[0:n].reshape(self.shape), totalvec[n:2 * n].reshape(self.shape),
-                           totalvec[2 * n])
+        self.incfiltparams(session, totalvec[0:n].reshape(self.shape),
+                           totalvec[n:2 * n].reshape(self.shape), totalvec[2 * n])

@@ -23,9 +23,9 @@ class DPPOBatch(object):
         model = dppo_model.Model(assemble_model=True)
         self.session = session.Session(policy=model.policy, value_func=model.value_func)
 
+        self.update_rms = model.op_update_rms
         self.session.policy.op_initialize()
         self.session.value_func.op_initialize()
-
         self.episode = None
         self.steps = 0
 
@@ -139,6 +139,8 @@ class DPPOBatch(object):
                 state = batch.experience['state'][i]
                 state = np.reshape(state, newshape=(state.shape[0],))
                 self.filter.rs.push(state)
+
+            self.update_rms(self.session._tf_session, np.asarray(batch.experience['state']))
 
     def get_batch(self):
         batch = self.episode.subset(elements=self.episode.size,
