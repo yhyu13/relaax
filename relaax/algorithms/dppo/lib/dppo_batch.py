@@ -72,8 +72,8 @@ class DPPOBatch(object):
 
     def step(self, reward, state, terminal):
         self.terminal = terminal
-        if dppo_config.config.use_filter:
-            state = self.filter(state)
+        if dppo_config.config.use_filter and self.filter.rs._n > 0:
+            state = self.filter(state, update=False)
         self.final_state = state
         self.steps += 1
         if reward is not None:
@@ -131,6 +131,10 @@ class DPPOBatch(object):
             logger.debug('Policy & Value function update finished')
             self.ps.session.policy.op_inc_global_step(increment=steps)
             self.ps.session.value_func.op_inc_global_step(increment=steps)
+            for i in range(steps):
+                state = batch.experience['state'][i]
+                state = np.reshape(state, newshape=(state.shape[0],))
+                self.filter.rs.push(state)
 
     def get_batch(self):
         batch = self.episode.subset(elements=self.episode.size,
@@ -162,12 +166,12 @@ class DPPOBatch(object):
 
     def update_policy(self, experience):
         self.apply_policy_gradients(self.compute_policy_gradients(experience))
-        self.load_shared_policy_parameters()    # update_iter=True
+        self.load_shared_policy_parameters(update_iter=True)    # update_iter=True
         self.metrics.scalar('pol_loss', self.pol_loss, self.policy_step)
 
     def update_value_func(self, experience):
         self.apply_value_func_gradients(self.compute_value_func_gradients(experience))
-        self.load_shared_value_func_parameters()    # update_iter=True
+        self.load_shared_value_func_parameters(update_iter=True)    # update_iter=True
         self.metrics.scalar('vf_loss', self.vf_loss, self.value_step)
 
     def reset(self):
@@ -220,7 +224,7 @@ class DPPOBatch(object):
             new_policy_weights, new_policy_step = self.ps.session.policy.op_get_weights_signed()
         msg = "Current policy weights: {}, received weights: {}".format(self.policy_step, new_policy_step)
 
-        if (self.policy_step is None) or (new_policy_step > self.policy_step):
+        if (self.policy_step is None) or (new_policy_step >= self.policy_step):
             logger.debug(msg + ", updating weights")
             if not update_iter:
                 self.session.policy.op_assign_weights(weights=new_policy_weights)
@@ -237,7 +241,7 @@ class DPPOBatch(object):
         msg = "Current value func weights: {}, received weights: {}".format(self.value_step,
                                                                             new_value_func_step)
 
-        if (self.value_step is None) or (new_value_func_step > self.value_step):
+        if (self.value_step is None) or (new_value_func_step >= self.value_step):
             logger.debug(msg + ", updating weights")
             if not update_iter:
                 self.session.value_func.op_assign_weights(weights=new_value_func_weights)
