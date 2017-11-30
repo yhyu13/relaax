@@ -12,6 +12,7 @@ config.l2_coeff = options.get('algorithm/l2_coeff', None)
 config.critic_scale = options.get('algorithm/critic_scale', 1.0)
 
 config.use_filter = options.get('algorithm/use_filter', False)
+config.use_old_filter = options.get('algorithm/use_old_filter', False)
 config.use_lstm = options.get('algorithm/use_lstm', False)
 config.use_icm = options.get('algorithm/use_icm', False)
 config.norm_adv = options.get('algorithm/normalize_advantage', False)

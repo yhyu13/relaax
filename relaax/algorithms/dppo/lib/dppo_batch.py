@@ -58,7 +58,7 @@ class DPPOBatch(object):
         else:
             self.prob_type = Categorical(dppo_config.config.output.action_size)
 
-        if dppo_config.config.use_filter:
+        if dppo_config.config.use_old_filter:
             self.filter = ZFilter(dppo_config.config.input.shape, clip=5.0)
 
     @property
@@ -76,7 +76,7 @@ class DPPOBatch(object):
 
     def step(self, reward, state, terminal):
         self.terminal = terminal
-        if dppo_config.config.use_filter and self.filter.rs._n > 0:
+        if dppo_config.config.use_old_filter and self.filter.rs._n > 0:
             state = self.filter(state, update=False)
         self.final_state = state
         self.steps += 1
@@ -135,12 +135,14 @@ class DPPOBatch(object):
             logger.debug('Policy & Value function update finished')
             self.ps.session.policy.op_inc_global_step(increment=steps)
             self.ps.session.value_func.op_inc_global_step(increment=steps)
-            for i in range(steps):
-                state = batch.experience['state'][i]
-                state = np.reshape(state, newshape=(state.shape[0],))
-                self.filter.rs.push(state)
 
-            self.update_rms(self.session._tf_session, np.asarray(batch.experience['state']))
+            if dppo_config.config.use_old_filter:
+                for i in range(steps):
+                    state = batch.experience['state'][i]
+                    state = np.reshape(state, newshape=(state.shape[0],))
+                    self.filter.rs.push(state)
+            elif dppo_config.config.use_filter:
+                self.update_rms(self.session._tf_session, np.asarray(batch.experience['state']))
 
     def get_batch(self):
         batch = self.episode.subset(elements=self.episode.size,
