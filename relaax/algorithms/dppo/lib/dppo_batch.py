@@ -168,8 +168,6 @@ class DPPOBatch(object):
             self.metrics.scalar('adv', adv[i], self.global_step - steps + i)
             self.metrics.scalar('vtarg', vtarg[i], self.global_step - steps + i)
 
-        if not dppo_config.config.use_lstm:
-            batch.shuffle()
         return batch, steps
 
     def update_policy(self, experience):
