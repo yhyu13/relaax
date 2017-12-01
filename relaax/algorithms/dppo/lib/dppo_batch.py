@@ -114,8 +114,8 @@ class DPPOBatch(object):
                 if dppo_config.config.use_lstm:
                     self.mini_batch_lstm_state = self.initial_lstm_state
                 for mini_batch in batch.iterate_once(self.mini_batch_size):
-                    self.update_policy(mini_batch)
                     self.update_value_func(mini_batch)
+                    self.update_policy(mini_batch)
 
             iterations = abs(dppo_config.config.policy_iterations - dppo_config.config.value_func_iterations)
 
@@ -278,6 +278,8 @@ class DPPOBatch(object):
         if dppo_config.config.use_lstm:
             # 0 <- actor's lstm state & critic's lstm state -> 1
             feeds.update(dict(lstm_state=self.mini_batch_lstm_state[0], lstm_step=[len(experience['state'])]))
+        if dppo_config.config.add_vf_to_pol_loss:
+            feeds.update(dict(vf_loss=self.vf_loss))
 
         gradients, self.pol_loss = self.session.policy.op_compute_ppo_clip_gradients(**feeds)
         if dppo_config.config.use_lstm:

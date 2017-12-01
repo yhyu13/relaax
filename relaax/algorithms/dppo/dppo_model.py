@@ -150,11 +150,17 @@ class PolicyModel(subgraph.Subgraph):
         else:
             sg_pol_total_loss = sg_pol_clip_loss
 
+        if dppo_config.config.add_vf_to_pol_loss:
+            ph_vf_loss = graph.TfNode(tf.placeholder(tf.float32, name='vf_loss'))
+            sg_pol_total_loss = graph.TfNode(sg_pol_total_loss.node + 0.5*ph_vf_loss.node)
+
         # Regular gradients
         sg_ppo_clip_gradients = optimizer.Gradients(sg_network.weights,
                                                     loss=sg_pol_total_loss)
         feeds = dict(state=sg_network.ph_state, action=sg_probtype.ph_sampled_variable,
                      advantage=ph_adv_n, old_prob=ph_oldprob_np)
+        if dppo_config.config.add_vf_to_pol_loss:
+            feeds.update(dict(vf_loss=ph_vf_loss))
         if dppo_config.config.use_lstm:
             feeds.update(dict(lstm_state=sg_network.ph_lstm_state))
 
