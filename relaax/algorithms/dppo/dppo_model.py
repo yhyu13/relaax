@@ -78,7 +78,7 @@ class Model(subgraph.Subgraph):
         if dppo_config.config.output.continuous:
             output = layer.Dense(policy_head, dppo_config.config.output.action_size, init_var=0.01)
             actor = ConcatFixedStd(output)
-            actor_layers = [output, actor]
+            actor_layers = [output]   # [output, actor]
         else:
             actor = layer.Dense(policy_head, dppo_config.config.output.action_size,
                                 activation=layer.Activation.Softmax, init_var=0.01)
