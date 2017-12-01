@@ -32,6 +32,7 @@ class TfInput(object):
         """Given data input it to the placeholder(s)."""
         raise NotImplemented()
 
+
 class PlacholderTfInput(TfInput):
     def __init__(self, placeholder):
         """Wrapper for regular tensorflow placeholder."""
@@ -90,7 +91,8 @@ class _Function(object):
     def __init__(self, inputs, outputs, updates, givens, check_nan=False):
         for inpt in inputs:
             if not issubclass(type(inpt), TfInput):
-                assert len(inpt.op.inputs) == 0, "inputs should all be placeholders of baselines.common.TfInput"
+                assert len(inpt.op.inputs) == 0,\
+                    "inputs should all be placeholders of baselines.common.TfInput"
         self.inputs = inputs
         updates = updates or []
         self.update_group = tf.group(*updates)
@@ -116,7 +118,8 @@ class _Function(object):
             inpt_name = inpt.name.split(':')[0]
             inpt_name = inpt_name.split('/')[-1]
             assert inpt_name not in kwargs_passed_inpt_names, \
-                "this function has two arguments with the same name \"{}\", so kwargs cannot be used.".format(inpt_name)
+                "this function has two arguments with the same name \"{}\"," \
+                " so kwargs cannot be used.".format(inpt_name)
             if inpt_name in kwargs:
                 kwargs_passed_inpt_names.add(inpt_name)
                 self._feed_input(feed_dict, inpt, kwargs.pop(inpt_name))
