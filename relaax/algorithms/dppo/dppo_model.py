@@ -30,7 +30,7 @@ class Network(subgraph.Subgraph):
         activation = layer.Activation.get_activation(dppo_config.config.activation)
         fc_layers = layer.GenericLayers(layer.Flatten(input),
                                         [dict(type=layer.Dense, size=size, activation=activation)
-                                        for size in sizes[:-1]])
+                                         for size in sizes[:-1]])
         layers.append(fc_layers)
 
         last_size = fc_layers.node.shape.as_list()[-1]
@@ -78,7 +78,7 @@ class Model(subgraph.Subgraph):
         if dppo_config.config.output.continuous:
             output = layer.Dense(policy_head, dppo_config.config.output.action_size, init_var=0.01)
             actor = ConcatFixedStd(output)
-            actor_layers = [output]   # [output, actor]
+            actor_layers = [output]  # [output, actor]
         else:
             actor = layer.Dense(policy_head, dppo_config.config.output.action_size,
                                 activation=layer.Activation.Softmax, init_var=0.01)
@@ -152,7 +152,7 @@ class PolicyModel(subgraph.Subgraph):
 
         if dppo_config.config.add_vf_to_pol_loss:
             ph_vf_loss = graph.TfNode(tf.placeholder(tf.float32, name='vf_loss'))
-            sg_pol_total_loss = graph.TfNode(sg_pol_total_loss.node + 0.5*ph_vf_loss.node)
+            sg_pol_total_loss = graph.TfNode(sg_pol_total_loss.node + 0.5 * ph_vf_loss.node)
 
         # Regular gradients
         sg_ppo_clip_gradients = optimizer.Gradients(sg_network.weights,
@@ -190,21 +190,29 @@ class PolicyModel(subgraph.Subgraph):
 class ValueModel(subgraph.Subgraph):
     def build_graph(self, sg_value_net):
         # 'Observed' value of a state = discounted reward
+        vf_scale = dppo_config.config.critic_scale
+
         ph_ytarg_ny = graph.Placeholder(np.float32)
+        v1_loss = graph.TfNode(tf.square(sg_value_net.head.node - ph_ytarg_ny.node))
 
-        mse = graph.TfNode(tf.reduce_mean(tf.square(ph_ytarg_ny.node - sg_value_net.head.node)))
+        if dppo_config.config.vf_clipped_loss:
+            ph_old_vpred = graph.Placeholder(np.float32)
+            clip_e = dppo_config.config.clip_e
+            vpredclipped = ph_old_vpred.node + tf.clip_by_value(sg_value_net.head.node - ph_old_vpred.node,
+                                                                -clip_e, clip_e)
+            v2_loss = graph.TfNode(tf.square(vpredclipped - ph_ytarg_ny.node))
+            vf_mse = graph.TfNode(vf_scale * tf.reduce_mean(tf.maximum(v2_loss.node, v1_loss.node)))
+        else:
+            vf_mse = graph.TfNode(vf_scale * tf.reduce_mean(v1_loss.node))
 
-        logger.debug("ValueModel | mse={}".format(mse.node))
-
-        # PPO entropy loss
         if dppo_config.config.l2_coeff is not None:
             l2 = graph.TfNode(dppo_config.config.l2_coeff *
                               tf.add_n([tf.reduce_sum(tf.square(v)) for v in
                                         utils.Utils.flatten(sg_value_net.weights.node)]))
-            logger.debug("ValueModel | l2={}".format(l2.node))
-            sg_vf_total_loss = graph.TfNode((l2.node + mse.node) * dppo_config.config.critic_scale)
+
+            sg_vf_total_loss = graph.TfNode(l2.node + vf_mse.node)
         else:
-            sg_vf_total_loss = graph.TfNode(mse.node * dppo_config.config.critic_scale)
+            sg_vf_total_loss = vf_mse
 
         sg_gradients = optimizer.Gradients(sg_value_net.weights, loss=sg_vf_total_loss)
         sg_gradients_flatten = GetVariablesFlatten(sg_gradients.calculate)
@@ -230,6 +238,8 @@ class ValueModel(subgraph.Subgraph):
         feeds = dict(state=sg_value_net.ph_state, ytarg_ny=ph_ytarg_ny)
         if dppo_config.config.use_lstm:
             feeds.update(dict(lstm_state=sg_value_net.ph_lstm_state))
+        if dppo_config.config.vf_clipped_loss:
+            feeds.update(dict(vpred_old=ph_old_vpred))
 
         self.op_compute_gradients = self.Ops(sg_gradients.calculate, sg_vf_total_loss, **feeds)
         if dppo_config.config.use_lstm:
@@ -237,7 +247,7 @@ class ValueModel(subgraph.Subgraph):
 
         self.op_compute_loss_and_gradient_flatten = self.Ops(sg_vf_total_loss, sg_gradients_flatten, **feeds)
 
-        losses = [sg_vf_total_loss, mse]
+        losses = [sg_vf_total_loss, vf_mse]
         if dppo_config.config.l2_coeff is not None:
             losses.append(l2)
         self.op_losses = self.Ops(*losses, **feeds)
