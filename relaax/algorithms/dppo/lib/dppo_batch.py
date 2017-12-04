@@ -114,8 +114,8 @@ class DPPOBatch(object):
                 if dppo_config.config.use_lstm:
                     self.mini_batch_lstm_state = self.initial_lstm_state
                 for mini_batch in batch.iterate_once(self.mini_batch_size):
-                    self.update_value_func(mini_batch)
                     self.update_policy(mini_batch)
+                    self.update_value_func(mini_batch)
 
             iterations = abs(dppo_config.config.policy_iterations - dppo_config.config.value_func_iterations)
 
