@@ -4,7 +4,7 @@ import logging
 import numpy as np
 
 from relaax.server.common import session
-from relaax.common.algorithms.lib import episode    # dataset
+from relaax.common.algorithms.lib import episode  # dataset
 from relaax.common.algorithms.lib.utils import ZFilter
 
 from relaax.algorithms.trpo.lib.core import Categorical, DiagGauss
@@ -156,7 +156,7 @@ class DPPOBatch(object):
 
     def update_policy(self, experience):
         self.apply_gradients(self.compute_gradients(experience))
-        self.load_shared_parameters()    # update_iter=True
+        self.load_shared_parameters()  # update_iter=True
         self.metrics.scalar('pol_loss', self.pol_loss, self.w_step)
         self.metrics.scalar('vf_loss', self.vf_loss, self.w_step)
 
@@ -248,9 +248,8 @@ class DPPOBatch(object):
             feeds.update(dict(vpred_old=experience['old_vpred']))
 
         if dppo_config.config.use_lstm:
-            gradients, self.pol_loss, self.vf_loss,\
-            self.mini_batch_lstm_state[0], self.mini_batch_lstm_state[1]\
-                = self.session.op_compute_gradients(**feeds)
+            gradients, self.pol_loss, self.vf_loss, self.mini_batch_lstm_state[0],\
+                self.mini_batch_lstm_state[1] = self.session.op_compute_gradients(**feeds)
         else:
             gradients, self.pol_loss, self.vf_loss = self.session.op_compute_gradients(**feeds)
         return gradients
@@ -263,12 +262,12 @@ class DPPOBatch(object):
             # 0 <- actor's lstm state & critic's lstm state -> 1
             values, self.lstm_state[1] = \
                 self.session.op_value(state=states, lstm_state=self.initial_lstm_state[1],
-                                                 lstm_step=[len(states)])
+                                      lstm_step=[len(states)])
             if not self.terminal:
                 final_state = np.reshape(self.final_state, (1,) + self.final_state.shape + (1,))
                 l_value, tmp = self.session.op_value(state=final_state,
-                                                                lstm_state=self.lstm_state[1],
-                                                                lstm_step=[1])
+                                                     lstm_state=self.lstm_state[1],
+                                                     lstm_step=[1])
         else:
             values = self.session.op_value(state=states)
             if not self.terminal:
