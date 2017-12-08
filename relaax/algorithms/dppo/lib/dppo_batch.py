@@ -13,6 +13,7 @@ from .. import dppo_config
 from .. import dppo_model
 
 logger = logging.getLogger(__name__)
+np.random.seed(dppo_config.config.seed)
 
 
 class DPPOBatch(object):
