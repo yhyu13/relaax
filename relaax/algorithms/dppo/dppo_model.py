@@ -104,22 +104,23 @@ class Model(subgraph.Subgraph):
                               lstm_state=value_head.lstm_state))
         self.critic = Subnet(**feeds)
 
+        self.weights = layer.Weights(policy_head, value_head, critic, *actor_layers)
         if assemble_model:
-            self.policy = PolicyModel(self.actor)
-            self.value_func = ValueModel(self.critic)
+            self.model = BuildModel(self.actor, self.critic, self.weights)
 
             if dppo_config.config.use_lstm:
                 self.lstm_zero_state = [self.actor.lstm_zero_state, self.critic.lstm_zero_state]
 
 
-class PolicyModel(subgraph.Subgraph):
-    def build_graph(self, sg_network):
+class BuildModel(subgraph.Subgraph):
+    def build_graph(self, sg_ac_nn, sg_vf_nn, weights):
+        # ***** POLICY *****
         if dppo_config.config.use_lstm:
-            self.op_get_action = self.Ops(sg_network.head, sg_network.lstm_state,
-                                          state=sg_network.ph_state, lstm_state=sg_network.ph_lstm_state)
-            self.op_lstm_zero_state = sg_network.lstm_zero_state
+            self.op_get_action = self.Ops(sg_ac_nn.head, sg_ac_nn.lstm_state,
+                                          state=sg_ac_nn.ph_state, lstm_state=sg_ac_nn.ph_lstm_state)
+            self.op_ac_lstm_zero_state = sg_ac_nn.lstm_zero_state
         else:
-            self.op_get_action = self.Op(sg_network.head, state=sg_network.ph_state)
+            self.op_get_action = self.Op(sg_ac_nn.head, state=sg_ac_nn.ph_state)
 
         # Advantage node
         ph_adv_n = graph.TfNode(tf.placeholder(tf.float32, name='adv_n'))
@@ -131,7 +132,7 @@ class PolicyModel(subgraph.Subgraph):
         # Placeholder to store action probabilities under the old policy
         ph_oldprob_np = sg_probtype.ProbVariable()
 
-        sg_logp_n = sg_probtype.Loglikelihood(sg_network.head)
+        sg_logp_n = sg_probtype.Loglikelihood(sg_ac_nn.head)
         sg_oldlogp_n = sg_probtype.Loglikelihood(ph_oldprob_np)
 
         # PPO clipped surrogate loss
@@ -144,7 +145,7 @@ class PolicyModel(subgraph.Subgraph):
 
         # PPO entropy loss
         if dppo_config.config.entropy is not None:
-            sg_entropy = sg_probtype.Entropy(sg_network.head)
+            sg_entropy = sg_probtype.Entropy(sg_ac_nn.head)
             sg_ent_loss = (-dppo_config.config.entropy) * tf.reduce_mean(sg_entropy.node)
             sg_pol_total_loss = graph.TfNode(sg_pol_clip_loss.node + sg_ent_loss)
         else:
@@ -154,51 +155,24 @@ class PolicyModel(subgraph.Subgraph):
             ph_vf_loss = graph.TfNode(tf.placeholder(tf.float32, name='vf_loss'))
             sg_pol_total_loss = graph.TfNode(sg_pol_total_loss.node + 0.5 * ph_vf_loss.node)
 
-        # Regular gradients
-        sg_ppo_clip_gradients = optimizer.Gradients(sg_network.weights,
-                                                    loss=sg_pol_total_loss)
-        feeds = dict(state=sg_network.ph_state, action=sg_probtype.ph_sampled_variable,
-                     advantage=ph_adv_n, old_prob=ph_oldprob_np)
-        if dppo_config.config.add_vf_to_pol_loss:
-            feeds.update(dict(vf_loss=ph_vf_loss))
+        # ***** VALUE *****
+        # Op to compute value of a state
         if dppo_config.config.use_lstm:
-            feeds.update(dict(lstm_state=sg_network.ph_lstm_state))
+            self.op_value = self.Ops(sg_vf_nn.head, sg_vf_nn.lstm_state,
+                                     state=sg_vf_nn.ph_state, lstm_state=sg_vf_nn.ph_lstm_state)
+            self.op_vf_lstm_zero_state = sg_vf_nn.lstm_zero_state
+        else:
+            self.op_value = self.Op(sg_vf_nn.head, state=sg_vf_nn.ph_state)
 
-        self.op_compute_ppo_clip_gradients = \
-            self.Ops(sg_ppo_clip_gradients.calculate, sg_pol_clip_loss, **feeds)
-        if dppo_config.config.use_lstm:
-            self.op_compute_ppo_clip_gradients = self.Ops(sg_ppo_clip_gradients.calculate,
-                                                          sg_network.lstm_state, **feeds)
-
-        # Weights get/set for updating the policy
-        sg_get_weights_flatten = GetVariablesFlatten(sg_network.weights)
-        sg_set_weights_flatten = SetVariablesFlatten(sg_network.weights)
-
-        self.op_get_weights = self.Op(sg_network.weights)
-        self.op_assign_weights = self.Op(sg_network.weights.assign,
-                                         weights=sg_network.weights.ph_weights)
-
-        self.op_get_weights_flatten = self.Op(sg_get_weights_flatten)
-        self.op_set_weights_flatten = self.Op(sg_set_weights_flatten, value=sg_set_weights_flatten.ph_value)
-
-        # Init Op for all weights
-        sg_initialize = graph.Initialize()
-        self.op_initialize = self.Op(sg_initialize)
-
-
-# Value function model used by agents to estimate advantage
-class ValueModel(subgraph.Subgraph):
-    def build_graph(self, sg_value_net):
-        # 'Observed' value of a state = discounted reward
         vf_scale = dppo_config.config.critic_scale
 
         ph_ytarg_ny = graph.Placeholder(np.float32)
-        v1_loss = graph.TfNode(tf.square(sg_value_net.head.node - ph_ytarg_ny.node))
+        v1_loss = graph.TfNode(tf.square(sg_vf_nn.head.node - ph_ytarg_ny.node))
 
         if dppo_config.config.vf_clipped_loss:
             ph_old_vpred = graph.Placeholder(np.float32)
             clip_e = dppo_config.config.clip_e
-            vpredclipped = ph_old_vpred.node + tf.clip_by_value(sg_value_net.head.node - ph_old_vpred.node,
+            vpredclipped = ph_old_vpred.node + tf.clip_by_value(sg_vf_nn.head.node - ph_old_vpred.node,
                                                                 -clip_e, clip_e)
             v2_loss = graph.TfNode(tf.square(vpredclipped - ph_ytarg_ny.node))
             vf_mse = graph.TfNode(vf_scale * tf.reduce_mean(tf.maximum(v2_loss.node, v1_loss.node)))
@@ -208,49 +182,44 @@ class ValueModel(subgraph.Subgraph):
         if dppo_config.config.l2_coeff is not None:
             l2 = graph.TfNode(dppo_config.config.l2_coeff *
                               tf.add_n([tf.reduce_sum(tf.square(v)) for v in
-                                        utils.Utils.flatten(sg_value_net.weights.node)]))
+                                        utils.Utils.flatten(sg_vf_nn.weights.node)]))
 
             sg_vf_total_loss = graph.TfNode(l2.node + vf_mse.node)
         else:
             sg_vf_total_loss = vf_mse
 
-        sg_gradients = optimizer.Gradients(sg_value_net.weights, loss=sg_vf_total_loss)
-        sg_gradients_flatten = GetVariablesFlatten(sg_gradients.calculate)
+        # ***** COMBINE *****
+        # weights = layer.Weights(*(sg_ac_nn.weights + sg_vf_nn.weights))
+        loss = graph.TfNode(sg_pol_total_loss.node + sg_vf_total_loss.node)
 
-        # Op to compute value of a state
+        # Pol Regular gradients
+        gradients = optimizer.Gradients(weights, loss=loss)
+
+        feeds = dict(state=sg_ac_nn.ph_state, action=sg_probtype.ph_sampled_variable,
+                     advantage=ph_adv_n, old_prob=ph_oldprob_np, ytarg_ny=ph_ytarg_ny)  # sg_vf_nn.ph_state
+        if dppo_config.config.add_vf_to_pol_loss:
+            feeds.update(dict(vf_loss=ph_vf_loss))
         if dppo_config.config.use_lstm:
-            self.op_value = self.Ops(sg_value_net.head, sg_value_net.lstm_state,
-                                     state=sg_value_net.ph_state, lstm_state=sg_value_net.ph_lstm_state)
-            self.op_lstm_zero_state = sg_value_net.lstm_zero_state
-        else:
-            self.op_value = self.Op(sg_value_net.head, state=sg_value_net.ph_state)
-
-        self.op_get_weights = self.Op(sg_value_net.weights)
-        self.op_assign_weights = self.Op(sg_value_net.weights.assign,
-                                         weights=sg_value_net.weights.ph_weights)
-
-        sg_get_weights_flatten = GetVariablesFlatten(sg_value_net.weights)
-        sg_set_weights_flatten = SetVariablesFlatten(sg_value_net.weights)
-
-        self.op_get_weights_flatten = self.Op(sg_get_weights_flatten)
-        self.op_set_weights_flatten = self.Op(sg_set_weights_flatten, value=sg_set_weights_flatten.ph_value)
-
-        feeds = dict(state=sg_value_net.ph_state, ytarg_ny=ph_ytarg_ny)
-        if dppo_config.config.use_lstm:
-            feeds.update(dict(lstm_state=sg_value_net.ph_lstm_state))
+            feeds.update(dict(lstm_ac_state=sg_ac_nn.ph_lstm_state, lstm_vf_state=sg_vf_nn.ph_lstm_state))
         if dppo_config.config.vf_clipped_loss:
             feeds.update(dict(vpred_old=ph_old_vpred))
 
-        self.op_compute_gradients = self.Ops(sg_gradients.calculate, sg_vf_total_loss, **feeds)
+        self.op_compute_gradients = self.Ops(gradients.calculate, sg_pol_total_loss,
+                                             sg_vf_total_loss, **feeds)
         if dppo_config.config.use_lstm:
-            self.op_compute_gradients = self.Ops(sg_gradients.calculate, sg_value_net.lstm_state, **feeds)
+            self.op_compute_gradients = self.Ops(gradients.calculate, sg_pol_total_loss,
+                                                 sg_vf_total_loss, sg_ac_nn.lstm_state,
+                                                 sg_vf_nn.lstm_state, **feeds)
 
-        self.op_compute_loss_and_gradient_flatten = self.Ops(sg_vf_total_loss, sg_gradients_flatten, **feeds)
+        # Weights get/set for updating the policy
+        sg_get_weights_flatten = GetVariablesFlatten(weights)
+        sg_set_weights_flatten = SetVariablesFlatten(weights)
 
-        losses = [sg_vf_total_loss, vf_mse]
-        if dppo_config.config.l2_coeff is not None:
-            losses.append(l2)
-        self.op_losses = self.Ops(*losses, **feeds)
+        self.op_get_weights = self.Op(weights)
+        self.op_assign_weights = self.Op(weights.assign, weights=weights.ph_weights)
+
+        self.op_get_weights_flatten = self.Op(sg_get_weights_flatten)
+        self.op_set_weights_flatten = self.Op(sg_set_weights_flatten, value=sg_set_weights_flatten.ph_value)
 
         # Init Op for all weights
         sg_initialize = graph.Initialize()
@@ -385,11 +354,9 @@ class SharedParameters(subgraph.Subgraph):
     def build_graph(self):
         sg_model = Model()
 
-        sg_policy_shared = SharedWeights(sg_model.actor.weights)
-        sg_value_func_shared = SharedWeights(sg_model.critic.weights)
+        sg_model_shared = SharedWeights(sg_model.weights)
 
-        self.policy = sg_policy_shared
-        self.value_func = sg_value_func_shared
+        self.model = sg_model_shared
 
 
 class Shaper():

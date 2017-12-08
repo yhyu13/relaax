@@ -21,11 +21,10 @@ class DPPOBatch(object):
         self.metrics = metrics
         self.ps = parameter_server
         model = dppo_model.Model(assemble_model=True)
-        self.session = session.Session(policy=model.policy, value_func=model.value_func)
+        self.session = session.Session(model.model)
 
         self.update_rms = model.op_update_rms
-        self.session.policy.op_initialize()
-        self.session.value_func.op_initialize()
+        self.session.op_initialize()
         self.episode = None
         self.steps = 0
 
@@ -46,8 +45,7 @@ class DPPOBatch(object):
         self.final_state = None
         self.final_value = None
 
-        self.policy_step = None
-        self.value_step = None
+        self.w_step = None
 
         self.mini_batch_size = dppo_config.config.batch_size
         if dppo_config.config.mini_batch is not None:
@@ -66,8 +64,7 @@ class DPPOBatch(object):
         return self.episode.size
 
     def begin(self):
-        self.load_shared_policy_parameters()
-        self.load_shared_value_func_parameters()
+        self.load_shared_parameters()
         if dppo_config.config.use_lstm:
             self.initial_lstm_state = self.lstm_state
 
@@ -115,26 +112,9 @@ class DPPOBatch(object):
                     self.mini_batch_lstm_state = self.initial_lstm_state
                 for mini_batch in batch.iterate_once(self.mini_batch_size):
                     self.update_policy(mini_batch)
-                    self.update_value_func(mini_batch)
-
-            iterations = abs(dppo_config.config.policy_iterations - dppo_config.config.value_func_iterations)
-
-            if dppo_config.config.policy_iterations > dppo_config.config.value_func_iterations:
-                for i in range(iterations):
-                    if dppo_config.config.use_lstm:
-                        self.mini_batch_lstm_state = self.initial_lstm_state
-                    for mini_batch in batch.iterate_once(self.mini_batch_size):
-                        self.update_policy(mini_batch)
-            else:
-                for i in range(iterations):
-                    if dppo_config.config.use_lstm:
-                        self.mini_batch_lstm_state = self.initial_lstm_state
-                    for mini_batch in batch.iterate_once(self.mini_batch_size):
-                        self.update_value_func(mini_batch)
 
             logger.debug('Policy & Value function update finished')
-            self.ps.session.policy.op_inc_global_step(increment=steps)
-            self.ps.session.value_func.op_inc_global_step(increment=steps)
+            self.ps.session.op_inc_global_step(increment=steps)
 
             if dppo_config.config.use_old_filter:
                 for i in range(steps):
@@ -175,14 +155,10 @@ class DPPOBatch(object):
         return batch, steps
 
     def update_policy(self, experience):
-        self.apply_policy_gradients(self.compute_policy_gradients(experience))
-        self.load_shared_policy_parameters()    # update_iter=True
-        self.metrics.scalar('pol_loss', self.pol_loss, self.policy_step)
-
-    def update_value_func(self, experience):
-        self.apply_value_func_gradients(self.compute_value_func_gradients(experience))
-        self.load_shared_value_func_parameters()    # update_iter=True
-        self.metrics.scalar('vf_loss', self.vf_loss, self.value_step)
+        self.apply_gradients(self.compute_gradients(experience))
+        self.load_shared_parameters()    # update_iter=True
+        self.metrics.scalar('pol_loss', self.pol_loss, self.w_step)
+        self.metrics.scalar('vf_loss', self.vf_loss, self.w_step)
 
     def reset(self):
         logger.debug('Environment terminated within {} steps.'.format(self.steps))
@@ -226,36 +202,19 @@ class DPPOBatch(object):
         self.last_action = action
         self.last_prob = prob
 
-    def load_shared_policy_parameters(self, update_iter=False):
+    def load_shared_parameters(self, update_iter=False):
         # Load policy parameters from server if they are fresh
         if update_iter:
-            new_policy_step = self.ps.session.policy.op_n_step()
+            new_step = self.ps.session.op_n_step()
         else:
-            new_policy_weights, new_policy_step = self.ps.session.policy.op_get_weights_signed()
-        msg = "Current policy weights: {}, received weights: {}".format(self.policy_step, new_policy_step)
+            new_weights, new_step = self.ps.session.op_get_weights_signed()
+        msg = "Current policy weights: {}, received weights: {}".format(self.w_step, new_step)
 
-        if (self.policy_step is None) or (new_policy_step > self.policy_step):
+        if (self.w_step is None) or (new_step > self.w_step):
             logger.debug(msg + ", updating weights")
             if not update_iter:
-                self.session.policy.op_assign_weights(weights=new_policy_weights)
-            self.policy_step = new_policy_step
-        else:
-            logger.debug(msg + ", keeping old weights")
-
-    def load_shared_value_func_parameters(self, update_iter=False):
-        # Load value function parameters from server if they are fresh
-        if update_iter:
-            new_value_func_step = self.ps.session.value_func.op_n_step()
-        else:
-            new_value_func_weights, new_value_func_step = self.ps.session.value_func.op_get_weights_signed()
-        msg = "Current value func weights: {}, received weights: {}".format(self.value_step,
-                                                                            new_value_func_step)
-
-        if (self.value_step is None) or (new_value_func_step > self.value_step):
-            logger.debug(msg + ", updating weights")
-            if not update_iter:
-                self.session.value_func.op_assign_weights(weights=new_value_func_weights)
-            self.value_step = new_value_func_step
+                self.session.op_assign_weights(weights=new_weights)
+            self.w_step = new_step
         else:
             logger.debug(msg + ", keeping old weights")
 
@@ -267,65 +226,57 @@ class DPPOBatch(object):
         if dppo_config.config.use_lstm:
             # 0 <- actor's lstm state & critic's lstm state -> 1
             probabilities, self.lstm_state[0] = \
-                self.session.policy.op_get_action(state=state, lstm_state=self.lstm_state[0], lstm_step=[1])
+                self.session.op_get_action(state=state, lstm_state=self.lstm_state[0], lstm_step=[1])
         else:
-            probabilities = self.session.policy.op_get_action(state=state)
+            probabilities = self.session.op_get_action(state=state)
 
         # logger.debug("probs: {}".format(probabilities))
         return self.prob_type.sample(probabilities)[0], probabilities[0]
 
-    def compute_policy_gradients(self, experience):
+    def compute_gradients(self, experience):
         feeds = dict(state=experience['state'], action=experience['action'],
-                     advantage=experience['adv'], old_prob=experience['old_prob'])
+                     advantage=experience['adv'], old_prob=experience['old_prob'],
+                     ytarg_ny=experience['vtarg'])
         if dppo_config.config.use_lstm:
             # 0 <- actor's lstm state & critic's lstm state -> 1
-            feeds.update(dict(lstm_state=self.mini_batch_lstm_state[0], lstm_step=[len(experience['state'])]))
+            feeds.update(dict(lstm_ac_state=self.mini_batch_lstm_state[0],
+                              lstm_vf_state=self.mini_batch_lstm_state[1],
+                              lstm_step=[len(experience['state'])]))
         if dppo_config.config.add_vf_to_pol_loss:
             feeds.update(dict(vf_loss=self.vf_loss))
+        if dppo_config.config.vf_clipped_loss:
+            feeds.update(dict(vpred_old=experience['old_vpred']))
 
-        gradients, self.pol_loss = self.session.policy.op_compute_ppo_clip_gradients(**feeds)
         if dppo_config.config.use_lstm:
-            gradients, self.mini_batch_lstm_state[0] = gradients
+            gradients, self.pol_loss, self.vf_loss,\
+            self.mini_batch_lstm_state[0], self.mini_batch_lstm_state[1]\
+                = self.session.op_compute_gradients(**feeds)
+        else:
+            gradients, self.pol_loss, self.vf_loss = self.session.op_compute_gradients(**feeds)
         return gradients
 
-    def apply_policy_gradients(self, gradients):
-        self.ps.session.policy.op_submit_gradients(gradients=gradients, step=self.policy_step)
+    def apply_gradients(self, gradients):
+        self.ps.session.op_submit_gradients(gradients=gradients, step=self.w_step)
 
     def compute_state_values(self, states):
         if dppo_config.config.use_lstm:
             # 0 <- actor's lstm state & critic's lstm state -> 1
             values, self.lstm_state[1] = \
-                self.session.value_func.op_value(state=states, lstm_state=self.initial_lstm_state[1],
+                self.session.op_value(state=states, lstm_state=self.initial_lstm_state[1],
                                                  lstm_step=[len(states)])
             if not self.terminal:
                 final_state = np.reshape(self.final_state, (1,) + self.final_state.shape + (1,))
-                l_value, tmp = self.session.value_func.op_value(state=final_state,
+                l_value, tmp = self.session.op_value(state=final_state,
                                                                 lstm_state=self.lstm_state[1],
                                                                 lstm_step=[1])
         else:
-            values = self.session.value_func.op_value(state=states)
+            values = self.session.op_value(state=states)
             if not self.terminal:
                 final_state = np.reshape(self.final_state, (1,) + self.final_state.shape + (1,))
-                l_value = self.session.value_func.op_value(state=final_state)
+                l_value = self.session.op_value(state=final_state)
 
         last_value = 0 if self.terminal else l_value[0][0]
         return values, last_value
-
-    def compute_value_func_gradients(self, experience):
-        feeds = dict(state=experience['state'], ytarg_ny=experience['vtarg'])
-        if dppo_config.config.use_lstm:
-            # 0 <- actor's lstm state & critic's lstm state -> 1
-            feeds.update(dict(lstm_state=self.mini_batch_lstm_state[1], lstm_step=[len(experience['state'])]))
-        if dppo_config.config.vf_clipped_loss:
-            feeds.update(dict(vpred_old=experience['old_vpred']))
-
-        gradients, self.vf_loss = self.session.value_func.op_compute_gradients(**feeds)
-        if dppo_config.config.use_lstm:
-            gradients, self.mini_batch_lstm_state[1] = gradients
-        return gradients
-
-    def apply_value_func_gradients(self, gradients):
-        self.ps.session.value_func.op_submit_gradients(gradients=gradients, step=self.value_step)
 
 
 def compute_adv_and_vtarg(rewards, values, terminals):
